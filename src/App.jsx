@@ -1,51 +1,49 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 import "./App.css";
 
 function App() {
   const [balance] = useState(1000);
   const [scanning, setScanning] = useState(false);
+  const videoRef = useRef(null);
 
   const handleScanClick = async () => {
-    setScanning(true);
     try {
+      setScanning(true);
+
       const codeReader = new BrowserMultiFormatReader();
 
-      // Ask for camera access
-      const videoInputDevices = await codeReader.listVideoInputDevices();
-      const selectedDeviceId = videoInputDevices[0]?.deviceId;
-
-      // Start scanning
+      // 🔹 Ask camera permission and start stream
       const result = await codeReader.decodeOnceFromVideoDevice(
-        selectedDeviceId,
-        "video"
+        undefined, // automatically pick the default camera
+        videoRef.current
       );
 
       console.log("Scanned data:", result.text);
       validateQR(result.text);
-    } catch (err) {
-      console.error("Error scanning:", err);
-      alert("Failed to scan QR code.");
-    } finally {
+
+      codeReader.reset(); // stop camera after scan
+    } catch (error) {
+      console.error("Error scanning:", error);
+      alert("Failed to scan QR. Please allow camera permission.");
       setScanning(false);
     }
   };
 
   const validateQR = (data) => {
     try {
-      const obj = JSON.parse(data); // expect JSON like {"name":"...","token":"...","BLE":true}
-
-      // ✅ Example validation
-      if (obj.token && obj.name && obj.totalamt && obj.BLE) {
-        alert(`Valid QR! User: ${obj.name}, Amount: ${obj.totalamt}`);
+      const obj = JSON.parse(data);
+      if (obj.name && obj.token && obj.totalamt) {
+        alert(`✅ Valid QR for ${obj.name} | Amount: ₹${obj.totalamt}`);
       } else {
-        alert("Invalid QR format — missing fields.");
+        alert("❌ Invalid QR structure.");
       }
     } catch (e) {
-      alert("Invalid QR — not JSON or not matching required data.");
+      alert("❌ Invalid QR — not in JSON format.");
     }
+    setScanning(false);
   };
-  
+
   return (
     <div className="app-container">
       <div className="balance-display">
@@ -59,8 +57,8 @@ function App() {
         </button>
       </div>
 
-      {/* Camera video feed (only visible while scanning) */}
-      {scanning && <video id="video" width="300" height="200" />}
+      {/* 🔹 Video preview (only shown while scanning) */}
+      {scanning && <video ref={videoRef} width="300" height="200" />}
     </div>
   );
 }
