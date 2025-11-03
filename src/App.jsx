@@ -1,3 +1,4 @@
+
 import { useState, useRef } from "react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 import "./App.css";
