@@ -40,40 +40,29 @@ function App() {
           codeReader = new BrowserMultiFormatReader();
           codeReaderRef.current = codeReader;
 
-          // Start continuous scanning - ZXing will handle getting the stream and attaching it
-          codeReader.decodeFromVideoDevice(
-            undefined, // automatically pick the default camera
-            video,
-            async (result, error) => {
-              // Only process if still scanning and haven't already scanned
-              if (!isScanning) return;
-              
-              if (result) {
-                isScanning = false; // Prevent multiple scans
-                console.log("Scanned data:", result.text);
-                
-                // Stop scanning immediately
-                if (codeReaderRef.current) {
-                  codeReaderRef.current.reset();
-                  codeReaderRef.current = null;
-                }
-                
-                // Stop video stream
-                if (video && video.srcObject) {
-                  const tracks = video.srcObject.getTracks();
-                  tracks.forEach(track => track.stop());
-                  video.srcObject = null;
-                }
-                
-                // Show popup first, then close camera
-                await validateQR(result.text);
-              }
-              if (error && error.name !== 'NotFoundException') {
-                // NotFoundException is normal when no QR code is detected yet
-                console.error("Scan error:", error);
-              }
+          // Single-shot scan for reliability
+          try {
+            const result = await codeReader.decodeOnceFromVideoDevice(
+              undefined, // default camera
+              video
+            );
+            if (result && isScanning) {
+              isScanning = false;
+              console.log("Scanned data:", result.text);
+              await validateQR(result.text);
             }
-          );
+          } finally {
+            // Always cleanup reader and stream
+            if (codeReaderRef.current) {
+              codeReaderRef.current.reset();
+              codeReaderRef.current = null;
+            }
+            if (video && video.srcObject) {
+              const tracks = video.srcObject.getTracks();
+              tracks.forEach(track => track.stop());
+              video.srcObject = null;
+            }
+          }
 
           // Try to play after a short delay (in case stream was already attached)
           playTimer = setTimeout(ensurePlay, 500);
