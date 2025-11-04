@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 import "./App.css";
 
@@ -6,38 +6,114 @@ function App() {
   const [balance] = useState(1000);
   const [scanning, setScanning] = useState(false);
   const videoRef = useRef(null);
+  const codeReaderRef = useRef(null);
 
-  const handleScanClick = async () => {
-    try {
-      setScanning(true);
+  useEffect(() => {
+    if (scanning && videoRef.current) {
+      let codeReader = null;
+      let ensurePlay = null;
+      let playTimer = null;
 
-      const codeReader = new BrowserMultiFormatReader();
+      // Wait for video element to be ready, then start scanning
+      const startScanning = async () => {
+        try {
+          const video = videoRef.current;
+          if (!video) {
+            throw new Error("Video element not found");
+          }
 
-      // 🔹 Ask camera permission and start stream
-      const result = await codeReader.decodeOnceFromVideoDevice(
-        undefined, // automatically pick the default camera
-        videoRef.current
-      );
+          // Ensure video plays when stream is attached
+          ensurePlay = () => {
+            if (video.srcObject && video.paused) {
+              video.play().catch(err => {
+                console.error("Error playing video:", err);
+              });
+            }
+          };
 
-      console.log("Scanned data:", result.text);
-      validateQR(result.text);
+          // Listen for when stream is attached
+          video.addEventListener('loadedmetadata', ensurePlay);
+          video.addEventListener('canplay', ensurePlay);
 
-      codeReader.reset(); // stop camera after scan
-    } catch (error) {
-      console.error("Error scanning:", error);
-      alert("Failed to scan QR. Please allow camera permission.");
-      setScanning(false);
+          // Create code reader
+          codeReader = new BrowserMultiFormatReader();
+          codeReaderRef.current = codeReader;
+
+          // Start continuous scanning - ZXing will handle getting the stream and attaching it
+          codeReader.decodeFromVideoDevice(
+            undefined, // automatically pick the default camera
+            video,
+            (result, error) => {
+              if (result) {
+                console.log("Scanned data:", result.text);
+                // Stop scanning and validate
+                if (codeReaderRef.current) {
+                  codeReaderRef.current.reset();
+                }
+                validateQR(result.text);
+              }
+              if (error && error.name !== 'NotFoundException') {
+                // NotFoundException is normal when no QR code is detected yet
+                console.error("Scan error:", error);
+              }
+            }
+          );
+
+          // Try to play after a short delay (in case stream was already attached)
+          playTimer = setTimeout(ensurePlay, 500);
+        } catch (error) {
+          console.error("Error scanning:", error);
+          alert("Failed to scan QR. Please allow camera permission.");
+          setScanning(false);
+        }
+      };
+
+      // Small delay to ensure video element is fully mounted and rendered
+      const timer = setTimeout(() => {
+        startScanning();
+      }, 200);
+
+      return () => {
+        clearTimeout(timer);
+        if (playTimer) {
+          clearTimeout(playTimer);
+        }
+        // Cleanup on unmount
+        const video = videoRef.current;
+        if (video && ensurePlay) {
+          video.removeEventListener('loadedmetadata', ensurePlay);
+          video.removeEventListener('canplay', ensurePlay);
+        }
+        if (codeReaderRef.current) {
+          codeReaderRef.current.reset();
+          codeReaderRef.current = null;
+        }
+        if (video && video.srcObject) {
+          const tracks = video.srcObject.getTracks();
+          tracks.forEach(track => track.stop());
+          video.srcObject = null;
+        }
+      };
     }
+  }, [scanning]);
+
+  const handleScanClick = () => {
+    setScanning(true);
   };
 
   const handleStopScan = () => {
-    setScanning(false);
+    // Stop the code reader
+    if (codeReaderRef.current) {
+      codeReaderRef.current.reset();
+      codeReaderRef.current = null;
+    }
     // Stop any active video streams
     if (videoRef.current && videoRef.current.srcObject) {
       const tracks = videoRef.current.srcObject.getTracks();
       tracks.forEach(track => track.stop());
       videoRef.current.srcObject = null;
     }
+    setScanning(false);
   };
 
   const validateQR = (data) => {
@@ -52,6 +128,10 @@ function App() {
       alert("❌ Invalid QR — not in JSON format.");
     }
     // Stop video stream and close scanner
+    if (codeReaderRef.current) {
+      codeReaderRef.current.reset();
+      codeReaderRef.current = null;
+    }
     if (videoRef.current && videoRef.current.srcObject) {
       const tracks = videoRef.current.srcObject.getTracks();
       tracks.forEach(track => track.stop());
@@ -76,7 +156,13 @@ function App() {
       {/* 🔹 Video preview (only shown while scanning) - Fullscreen */}
       {scanning && (
         <div className="scanner-overlay">
-          <video ref={videoRef} className="scanner-video" autoPlay playsInline />
+          <video 
+            ref={videoRef} 
+            className="scanner-video" 
+            autoPlay 
+            playsInline 
+            muted 
+          />
           <button className="close-scanner-button" onClick={handleStopScan}>
             ✕ Close
           </button>
