@@ -35,34 +35,44 @@ export async function connectAndHandshake({ deviceName, transactionPossible, rem
   let characteristic;
 
   try {
-    // 1) Try auto-reconnect to previously granted device without chooser
-    const savedId = getRememberedDeviceId(rememberKey || deviceName || "");
+    // 1) Try auto-reconnect to a previously remembered device id
+    const savedKey = rememberKey || deviceName || "";
+    const savedId = getRememberedDeviceId(savedKey);
     if (savedId && navigator.bluetooth.getDevices) {
       const known = await navigator.bluetooth.getDevices();
-      const match = known.find(d => d.id === savedId);
-      if (match) {
-        device = match;
+      // Prefer exact id
+      device = known.find(d => d.id === savedId) || null;
+      // If not found by id, try by name (if multiple, pick first available)
+      if (!device && deviceName) {
+        device = known.find(d => (d.name || "").toLowerCase() === deviceName.toLowerCase()) || null;
       }
     }
 
-    // 2) If no known device, ask user with as-narrow-as-possible filters
+    // 2) If still no device, show chooser with narrowest filters
     if (!device) {
       const filters = [{ services: [SERVICE_UUID] }];
       if (deviceName && typeof deviceName === "string" && deviceName.trim().length > 0) {
-        // Use exact name filter when provided to minimize chooser ambiguity
         filters.push({ name: deviceName });
       }
-
-      device = await navigator.bluetooth.requestDevice({
-        filters,
-        optionalServices: [SERVICE_UUID],
-      });
-
-      // Remember for auto-reconnect next time
-      rememberDeviceId(rememberKey || deviceName || "", device.id);
+      device = await navigator.bluetooth.requestDevice({ filters, optionalServices: [SERVICE_UUID] });
+      rememberDeviceId(savedKey, device.id); // overwrite with latest selection (most recent)
     }
 
-    server = await device.gatt.connect();
+    // 3) Connect, if fails forget and retry via chooser once
+    try {
+      server = await device.gatt.connect();
+    } catch (e) {
+      // stale device permission or unreachable, prompt chooser
+      rememberDeviceId(savedKey, "");
+      const filters = [{ services: [SERVICE_UUID] }];
+      if (deviceName && typeof deviceName === "string" && deviceName.trim().length > 0) {
+        filters.push({ name: deviceName });
+      }
+      const newDev = await navigator.bluetooth.requestDevice({ filters, optionalServices: [SERVICE_UUID] });
+      rememberDeviceId(savedKey, newDev.id);
+      device = newDev;
+      server = await device.gatt.connect();
+    }
     service = await server.getPrimaryService(SERVICE_UUID);
     characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
 
