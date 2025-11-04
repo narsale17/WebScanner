@@ -123,21 +123,25 @@ function App() {
   };
 
   const validateQR = async (data) => {
-    // Show popup first
+    // Show result popup, then close camera
     return new Promise((resolve) => {
       try {
         const obj = JSON.parse(data);
-        if (obj.name && obj.token && obj.totalamt) {
-          alert(`✅ Valid QR for ${obj.name} | Amount: ₹${obj.totalamt}`);
+        const amount = Number(obj?.totalamt);
+        if (!Number.isFinite(amount)) {
+          alert("❌ Invalid QR — missing or invalid total amount.");
         } else {
-          alert("❌ Invalid QR structure.");
+          const possible = balance >= amount;
+          if (possible) {
+            alert("✅ Transaction possible");
+          } else {
+            alert("❌ Transaction not possible");
+          }
         }
       } catch (e) {
         alert("❌ Invalid QR — not in JSON format.");
       }
-      
       // Close camera after popup is shown
-      // Small delay to ensure alert is visible
       setTimeout(() => {
         setScanning(false);
         resolve();
