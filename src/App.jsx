@@ -1,4 +1,3 @@
-
 import { useState, useRef } from "react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 import "./App.css";
@@ -31,6 +30,16 @@ function App() {
     }
   };
 
+  const handleStopScan = () => {
+    setScanning(false);
+    // Stop any active video streams
+    if (videoRef.current && videoRef.current.srcObject) {
+      const tracks = videoRef.current.srcObject.getTracks();
+      tracks.forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    }
+  };
+
   const validateQR = (data) => {
     try {
       const obj = JSON.parse(data);
@@ -41,6 +50,12 @@ function App() {
       }
     } catch (e) {
       alert("❌ Invalid QR — not in JSON format.");
+    }
+    // Stop video stream and close scanner
+    if (videoRef.current && videoRef.current.srcObject) {
+      const tracks = videoRef.current.srcObject.getTracks();
+      tracks.forEach(track => track.stop());
+      videoRef.current.srcObject = null;
     }
     setScanning(false);
   };
@@ -58,8 +73,15 @@ function App() {
         </button>
       </div>
 
-      {/* 🔹 Video preview (only shown while scanning) */}
-      {scanning && <video ref={videoRef} width="300" height="200" />}
+      {/* 🔹 Video preview (only shown while scanning) - Fullscreen */}
+      {scanning && (
+        <div className="scanner-overlay">
+          <video ref={videoRef} className="scanner-video" autoPlay playsInline />
+          <button className="close-scanner-button" onClick={handleStopScan}>
+            ✕ Close
+          </button>
+        </div>
+      )}
     </div>
   );
 }
