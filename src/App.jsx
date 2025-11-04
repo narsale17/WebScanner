@@ -13,6 +13,7 @@ function App() {
       let codeReader = null;
       let ensurePlay = null;
       let playTimer = null;
+      let isScanning = true; // Flag to prevent multiple scans
 
       // Wait for video element to be ready, then start scanning
       const startScanning = async () => {
@@ -43,14 +44,29 @@ function App() {
           codeReader.decodeFromVideoDevice(
             undefined, // automatically pick the default camera
             video,
-            (result, error) => {
+            async (result, error) => {
+              // Only process if still scanning and haven't already scanned
+              if (!isScanning) return;
+              
               if (result) {
+                isScanning = false; // Prevent multiple scans
                 console.log("Scanned data:", result.text);
-                // Stop scanning and validate
+                
+                // Stop scanning immediately
                 if (codeReaderRef.current) {
                   codeReaderRef.current.reset();
+                  codeReaderRef.current = null;
                 }
-                validateQR(result.text);
+                
+                // Stop video stream
+                if (video && video.srcObject) {
+                  const tracks = video.srcObject.getTracks();
+                  tracks.forEach(track => track.stop());
+                  video.srcObject = null;
+                }
+                
+                // Show popup first, then close camera
+                await validateQR(result.text);
               }
               if (error && error.name !== 'NotFoundException') {
                 // NotFoundException is normal when no QR code is detected yet
@@ -74,6 +90,7 @@ function App() {
       }, 200);
 
       return () => {
+        isScanning = false; // Stop scanning flag
         clearTimeout(timer);
         if (playTimer) {
           clearTimeout(playTimer);
@@ -116,28 +133,27 @@ function App() {
     setScanning(false);
   };
 
-  const validateQR = (data) => {
-    try {
-      const obj = JSON.parse(data);
-      if (obj.name && obj.token && obj.totalamt) {
-        alert(`✅ Valid QR for ${obj.name} | Amount: ₹${obj.totalamt}`);
-      } else {
-        alert("❌ Invalid QR structure.");
+  const validateQR = async (data) => {
+    // Show popup first
+    return new Promise((resolve) => {
+      try {
+        const obj = JSON.parse(data);
+        if (obj.name && obj.token && obj.totalamt) {
+          alert(`✅ Valid QR for ${obj.name} | Amount: ₹${obj.totalamt}`);
+        } else {
+          alert("❌ Invalid QR structure.");
+        }
+      } catch (e) {
+        alert("❌ Invalid QR — not in JSON format.");
       }
-    } catch (e) {
-      alert("❌ Invalid QR — not in JSON format.");
-    }
-    // Stop video stream and close scanner
-    if (codeReaderRef.current) {
-      codeReaderRef.current.reset();
-      codeReaderRef.current = null;
-    }
-    if (videoRef.current && videoRef.current.srcObject) {
-      const tracks = videoRef.current.srcObject.getTracks();
-      tracks.forEach(track => track.stop());
-      videoRef.current.srcObject = null;
-    }
-    setScanning(false);
+      
+      // Close camera after popup is shown
+      // Small delay to ensure alert is visible
+      setTimeout(() => {
+        setScanning(false);
+        resolve();
+      }, 100);
+    });
   };
 
   return (
