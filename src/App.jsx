@@ -8,6 +8,15 @@ function App() {
   const [scanning, setScanning] = useState(false);
   const [receipt, setReceipt] = useState(null); // { success, amount, name, txnId, timestamp }
   const [processing, setProcessing] = useState(false);
+
+  // Auto-dismiss receipt after a short delay while still allowing manual dismiss
+  useEffect(() => {
+    if (!receipt) return;
+    const timer = setTimeout(() => {
+      setReceipt(null);
+    }, 8000); // keep for 8 seconds
+    return () => clearTimeout(timer);
+  }, [receipt]);
   const videoRef = useRef(null);
   const codeReaderRef = useRef(null);
 
@@ -273,7 +282,7 @@ function App() {
               onClick={() => setReceipt(null)}
               style={{ position: "static" }}
             >
-              Done
+              Back to Home
             </button>
           </div>
         </div>
