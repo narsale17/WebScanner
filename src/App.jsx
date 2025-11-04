@@ -8,6 +8,7 @@ function App() {
   const [scanning, setScanning] = useState(false);
   const [receipt, setReceipt] = useState(null); // { success, amount, name, txnId, timestamp }
   const [processing, setProcessing] = useState(false);
+  const [scanError, setScanError] = useState("");
 
   // Receipt now persists until user clicks Back to Home
   const videoRef = useRef(null);
@@ -19,6 +20,7 @@ function App() {
       let ensurePlay = null;
       let playTimer = null;
       let isScanning = true; // Flag to prevent multiple scans
+      let stream = null;
 
       // Wait for video element to be ready, then start scanning
       const startScanning = async () => {
@@ -40,6 +42,17 @@ function App() {
           // Listen for when stream is attached
           video.addEventListener('loadedmetadata', ensurePlay);
           video.addEventListener('canplay', ensurePlay);
+
+          // Explicitly request camera so preview is visible immediately
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+            video.srcObject = stream;
+            await video.play().catch(() => {});
+          } catch (camErr) {
+            console.error("Camera access error:", camErr);
+            setScanError("Unable to access camera. Please allow camera permission.");
+            throw camErr;
+          }
 
           // Create code reader
           codeReader = new BrowserMultiFormatReader();
@@ -74,6 +87,9 @@ function App() {
         } catch (error) {
           console.error("Error scanning:", error);
           setScanning(false);
+          if (!scanError) {
+            setScanError("Scanning failed. Please try again.");
+          }
         }
       };
 
@@ -108,6 +124,7 @@ function App() {
   }, [scanning]);
 
   const handleScanClick = () => {
+    setScanError("");
     setScanning(true);
   };
 
@@ -238,6 +255,11 @@ function App() {
           <button className="close-scanner-button" onClick={handleStopScan}>
             ✕ Close
           </button>
+          {scanError && (
+            <div style={{ position: "absolute", bottom: 20, left: 20, right: 20, color: "#fff", textAlign: "center", background: "rgba(0,0,0,0.5)", padding: 12, borderRadius: 8 }}>
+              {scanError}
+            </div>
+          )}
         </div>
       )}
 
