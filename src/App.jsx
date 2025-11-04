@@ -7,6 +7,7 @@ function App() {
   const [balance, setBalance] = useState(1000);
   const [scanning, setScanning] = useState(false);
   const [receipt, setReceipt] = useState(null); // { success, amount, name, txnId, timestamp }
+  const [processing, setProcessing] = useState(false);
   const videoRef = useRef(null);
   const codeReaderRef = useRef(null);
 
@@ -70,7 +71,6 @@ function App() {
           playTimer = setTimeout(ensurePlay, 500);
         } catch (error) {
           console.error("Error scanning:", error);
-          alert("Failed to scan QR. Please allow camera permission.");
           setScanning(false);
         }
       };
@@ -129,8 +129,15 @@ function App() {
       const obj = JSON.parse(data);
       const amount = Number(obj?.totalamt);
       if (!Number.isFinite(amount)) {
-        alert("❌ Invalid QR — missing or invalid total amount.");
         setScanning(false);
+        // Show failure receipt for invalid amount
+        setReceipt({
+          success: false,
+          amount: 0,
+          name: obj?.name || "",
+          txnId: Math.random().toString(16).slice(2, 10),
+          timestamp: Date.now(),
+        });
         return;
       }
 
@@ -138,15 +145,13 @@ function App() {
       const serverHasBle = Boolean(obj?.BLE);
       const transactionPossible = balance >= amount;
 
-      // Show only possible/not possible popup (per requirement)
-      alert(transactionPossible ? "✅ Transaction possible" : "❌ Transaction not possible");
-
-      // Close camera view now
+      // Close camera view now (no popups)
       setScanning(false);
 
       // If the server advertises BLE and Web Bluetooth is available, attempt the handshake
       if (serverHasBle && navigator.bluetooth) {
         try {
+          setProcessing(true);
           const { response } = await connectAndHandshake({
             deviceName,
             transactionPossible,
@@ -168,6 +173,7 @@ function App() {
             txnId: Math.random().toString(16).slice(2, 10),
             timestamp: Date.now(),
           });
+          setProcessing(false);
         } catch (e) {
           // BLE handshake failed — show failure receipt
           setReceipt({
@@ -177,11 +183,31 @@ function App() {
             txnId: Math.random().toString(16).slice(2, 10),
             timestamp: Date.now(),
           });
+          setProcessing(false);
+        }
+      } else {
+        // BLE not available — show receipt based on local feasibility only
+        setReceipt({
+          success: transactionPossible,
+          amount,
+          name: deviceName,
+          txnId: Math.random().toString(16).slice(2, 10),
+          timestamp: Date.now(),
+        });
+        if (transactionPossible) {
+          setBalance((prev) => Math.max(0, prev - amount));
         }
       }
     } catch (e) {
-      alert("❌ Invalid QR — not in JSON format.");
       setScanning(false);
+      // Show failure receipt for parse error
+      setReceipt({
+        success: false,
+        amount: 0,
+        name: "",
+        txnId: Math.random().toString(16).slice(2, 10),
+        timestamp: Date.now(),
+      });
     }
   };
 
@@ -211,6 +237,13 @@ function App() {
           <button className="close-scanner-button" onClick={handleStopScan}>
             ✕ Close
           </button>
+        </div>
+      )}
+
+      {/* 🔹 Processing overlay (BLE handshake) */}
+      {processing && (
+        <div className="scanner-overlay" style={{ background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ color: "#fff", fontSize: 18 }}>Processing via Bluetooth…</div>
         </div>
       )}
 
