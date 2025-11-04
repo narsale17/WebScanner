@@ -148,13 +148,15 @@ function App() {
       // Close camera view now (no popups)
       setScanning(false);
 
-      // If the server advertises BLE and Web Bluetooth is available, attempt the handshake
+      // If the server advertises BLE and Web Bluetooth is available, attempt the handshake.
+      // We pass a rememberKey so subsequent connections can auto-reconnect without chooser.
       if (serverHasBle && navigator.bluetooth) {
         try {
           setProcessing(true);
           const { response } = await connectAndHandshake({
             deviceName,
             transactionPossible,
+            rememberKey: obj?.token || deviceName || "",
           });
 
           const ok = typeof response === "string" && response.toLowerCase().startsWith("okay ");
@@ -186,17 +188,14 @@ function App() {
           setProcessing(false);
         }
       } else {
-        // BLE not available — show receipt based on local feasibility only
+        // BLE not available/advertised — treat as failure to preserve two-sided consistency
         setReceipt({
-          success: transactionPossible,
+          success: false,
           amount,
           name: deviceName,
           txnId: Math.random().toString(16).slice(2, 10),
           timestamp: Date.now(),
         });
-        if (transactionPossible) {
-          setBalance((prev) => Math.max(0, prev - amount));
-        }
       }
     } catch (e) {
       setScanning(false);
