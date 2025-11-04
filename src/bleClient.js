@@ -81,6 +81,7 @@ export async function connectAndHandshake({ deviceName, transactionPossible, rem
 
     // Wait for the server notification with the result ("okay true/false"). Add a timeout fallback.
     const notificationPromise = new Promise((resolve, reject) => {
+      let timeoutId;
       const onChanged = (event) => {
         try {
           const value = event.target.value;
@@ -88,6 +89,7 @@ export async function connectAndHandshake({ deviceName, transactionPossible, rem
           const msg = decoder.decode(value);
           if (typeof msg === "string" && msg.toLowerCase().startsWith("okay ")) {
             characteristic.removeEventListener("characteristicvaluechanged", onChanged);
+            if (timeoutId) clearTimeout(timeoutId);
             resolve(msg.trim());
           }
         } catch (_) {
@@ -97,14 +99,10 @@ export async function connectAndHandshake({ deviceName, transactionPossible, rem
       characteristic.addEventListener("characteristicvaluechanged", onChanged);
 
       // Timeout after 10s to avoid UI hanging in processing state
-      const timeoutId = setTimeout(() => {
+      timeoutId = setTimeout(() => {
         characteristic.removeEventListener("characteristicvaluechanged", onChanged);
         reject(new Error("BLE response timeout"));
       }, 10000);
-
-      // Ensure we clear timeout when resolved
-      const originalResolve = resolve;
-      resolve = (val) => { clearTimeout(timeoutId); originalResolve(val); };
     });
 
     // Write transactionPossible as the payload ("true" or "false")

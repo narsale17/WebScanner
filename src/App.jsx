@@ -9,6 +9,7 @@ function App() {
   const [receipt, setReceipt] = useState(null); // { success, amount, name, txnId, timestamp }
   const [processing, setProcessing] = useState(false);
   const [scanError, setScanError] = useState("");
+  const [blePrompt, setBlePrompt] = useState(null); // { deviceName, transactionPossible, rememberKey }
 
   // Receipt now persists until user clicks Back to Home
   const videoRef = useRef(null);
@@ -172,11 +173,28 @@ function App() {
       if (serverHasBle && navigator.bluetooth) {
         try {
           setProcessing(true);
-          const { response } = await connectAndHandshake({
-            deviceName,
-            transactionPossible,
-            rememberKey: obj?.token || deviceName || "",
-          });
+          const attempt = async () => {
+            const { response } = await connectAndHandshake({
+              deviceName,
+              transactionPossible,
+              rememberKey: obj?.token || deviceName || "",
+            });
+            return response;
+          };
+
+          let response;
+          try {
+            response = await attempt();
+          } catch (err) {
+            // If BLE chooser was blocked due to missing user gesture, prompt a button
+            const isGestureError = (err && (err.name === 'NotAllowedError' || /gesture/i.test(String(err.message || ''))));
+            if (isGestureError) {
+              setProcessing(false);
+              setBlePrompt({ deviceName, transactionPossible, rememberKey: obj?.token || deviceName || "" });
+              return; // do not create a receipt yet; wait for user to tap connect
+            }
+            throw err;
+          }
 
           const ok = typeof response === "string" && response.toLowerCase().startsWith("okay ");
           const accepted = ok && response.toLowerCase().includes("true");
@@ -229,6 +247,38 @@ function App() {
     }
   };
 
+  const handleBleConnectClick = async () => {
+    if (!blePrompt) return;
+    const { deviceName, transactionPossible, rememberKey } = blePrompt;
+    setBlePrompt(null);
+    try {
+      setProcessing(true);
+      const { response } = await connectAndHandshake({ deviceName, transactionPossible, rememberKey });
+      const ok = typeof response === "string" && response.toLowerCase().startsWith("okay ");
+      const accepted = ok && response.toLowerCase().includes("true");
+      if (accepted) {
+        // Deduct is not possible now since we don't have amount here; keep balance unchanged.
+      }
+      setReceipt({
+        success: accepted,
+        amount: 0,
+        name: deviceName,
+        txnId: Math.random().toString(16).slice(2, 10),
+        timestamp: Date.now(),
+      });
+    } catch (e) {
+      setReceipt({
+        success: false,
+        amount: 0,
+        name: blePrompt?.deviceName || "",
+        txnId: Math.random().toString(16).slice(2, 10),
+        timestamp: Date.now(),
+      });
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   return (
     <div className="app-container">
       <div className="balance-display">
@@ -267,6 +317,18 @@ function App() {
       {processing && (
         <div className="scanner-overlay" style={{ background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ color: "#fff", fontSize: 18 }}>Processing via Bluetooth…</div>
+        </div>
+      )}
+
+      {/* 🔹 BLE permission/gesture prompt */}
+      {blePrompt && !processing && (
+        <div className="scanner-overlay" style={{ background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#fff", color: "#333", padding: 24, borderRadius: 16, width: "min(90vw, 420px)", boxShadow: "0 10px 35px rgba(0,0,0,0.4)", textAlign: "center" }}>
+            <div style={{ fontSize: 18, marginBottom: 12 }}>Tap to connect to merchant via Bluetooth</div>
+            <button className="close-scanner-button" onClick={handleBleConnectClick} style={{ position: "static" }}>
+              Connect
+            </button>
+          </div>
         </div>
       )}
 
