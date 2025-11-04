@@ -48,12 +48,12 @@ export async function connectAndHandshake({ deviceName, transactionPossible, rem
       }
     }
 
-    // 2) If still no device, show chooser with narrowest filters
+    // 2) If still no device, show chooser with narrowest filters (combine constraints when possible)
     if (!device) {
-      const filters = [{ services: [SERVICE_UUID] }];
-      if (deviceName && typeof deviceName === "string" && deviceName.trim().length > 0) {
-        filters.push({ name: deviceName });
-      }
+      const hasName = Boolean(deviceName && typeof deviceName === "string" && deviceName.trim().length > 0);
+      const filters = hasName
+        ? [{ services: [SERVICE_UUID], name: deviceName }]
+        : [{ services: [SERVICE_UUID] }];
       device = await navigator.bluetooth.requestDevice({ filters, optionalServices: [SERVICE_UUID] });
       rememberDeviceId(savedKey, device.id); // overwrite with latest selection (most recent)
     }
@@ -64,10 +64,10 @@ export async function connectAndHandshake({ deviceName, transactionPossible, rem
     } catch (e) {
       // stale device permission or unreachable, prompt chooser
       rememberDeviceId(savedKey, "");
-      const filters = [{ services: [SERVICE_UUID] }];
-      if (deviceName && typeof deviceName === "string" && deviceName.trim().length > 0) {
-        filters.push({ name: deviceName });
-      }
+      const hasName = Boolean(deviceName && typeof deviceName === "string" && deviceName.trim().length > 0);
+      const filters = hasName
+        ? [{ services: [SERVICE_UUID], name: deviceName }]
+        : [{ services: [SERVICE_UUID] }];
       const newDev = await navigator.bluetooth.requestDevice({ filters, optionalServices: [SERVICE_UUID] });
       rememberDeviceId(savedKey, newDev.id);
       device = newDev;
@@ -79,8 +79,8 @@ export async function connectAndHandshake({ deviceName, transactionPossible, rem
     // Enable notifications
     await characteristic.startNotifications();
 
-    // Wait for the server notification with the result ("okay true/false")
-    const notificationPromise = new Promise((resolve) => {
+    // Wait for the server notification with the result ("okay true/false"). Add a timeout fallback.
+    const notificationPromise = new Promise((resolve, reject) => {
       const onChanged = (event) => {
         try {
           const value = event.target.value;
@@ -95,6 +95,16 @@ export async function connectAndHandshake({ deviceName, transactionPossible, rem
         }
       };
       characteristic.addEventListener("characteristicvaluechanged", onChanged);
+
+      // Timeout after 10s to avoid UI hanging in processing state
+      const timeoutId = setTimeout(() => {
+        characteristic.removeEventListener("characteristicvaluechanged", onChanged);
+        reject(new Error("BLE response timeout"));
+      }, 10000);
+
+      // Ensure we clear timeout when resolved
+      const originalResolve = resolve;
+      resolve = (val) => { clearTimeout(timeoutId); originalResolve(val); };
     });
 
     // Write transactionPossible as the payload ("true" or "false")
