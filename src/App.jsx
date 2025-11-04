@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect } from "react";
+import { connectAndHandshake } from "./bleClient";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 import "./App.css";
 
 function App() {
-  const [balance] = useState(1000);
+  const [balance, setBalance] = useState(1000);
   const [scanning, setScanning] = useState(false);
+  const [receipt, setReceipt] = useState(null); // { success, amount, name, txnId, timestamp }
   const videoRef = useRef(null);
   const codeReaderRef = useRef(null);
 
@@ -123,30 +125,64 @@ function App() {
   };
 
   const validateQR = async (data) => {
-    // Show result popup, then close camera
-    return new Promise((resolve) => {
-      try {
-        const obj = JSON.parse(data);
-        const amount = Number(obj?.totalamt);
-        if (!Number.isFinite(amount)) {
-          alert("❌ Invalid QR — missing or invalid total amount.");
-        } else {
-          const possible = balance >= amount;
-          if (possible) {
-            alert("✅ Transaction possible");
-          } else {
-            alert("❌ Transaction not possible");
-          }
-        }
-      } catch (e) {
-        alert("❌ Invalid QR — not in JSON format.");
-      }
-      // Close camera after popup is shown
-      setTimeout(() => {
+    try {
+      const obj = JSON.parse(data);
+      const amount = Number(obj?.totalamt);
+      if (!Number.isFinite(amount)) {
+        alert("❌ Invalid QR — missing or invalid total amount.");
         setScanning(false);
-        resolve();
-      }, 100);
-    });
+        return;
+      }
+
+      const deviceName = obj?.name || "";
+      const serverHasBle = Boolean(obj?.BLE);
+      const transactionPossible = balance >= amount;
+
+      // Show only possible/not possible popup (per requirement)
+      alert(transactionPossible ? "✅ Transaction possible" : "❌ Transaction not possible");
+
+      // Close camera view now
+      setScanning(false);
+
+      // If the server advertises BLE and Web Bluetooth is available, attempt the handshake
+      if (serverHasBle && navigator.bluetooth) {
+        try {
+          const { response } = await connectAndHandshake({
+            deviceName,
+            transactionPossible,
+          });
+
+          const ok = typeof response === "string" && response.toLowerCase().startsWith("okay ");
+          const accepted = ok && response.toLowerCase().includes("true");
+
+          if (accepted) {
+            // Deduct amount locally like Android code
+            setBalance((prev) => Math.max(0, prev - amount));
+          }
+
+          // Show receipt overlay
+          setReceipt({
+            success: accepted,
+            amount,
+            name: deviceName,
+            txnId: Math.random().toString(16).slice(2, 10),
+            timestamp: Date.now(),
+          });
+        } catch (e) {
+          // BLE handshake failed — show failure receipt
+          setReceipt({
+            success: false,
+            amount,
+            name: deviceName,
+            txnId: Math.random().toString(16).slice(2, 10),
+            timestamp: Date.now(),
+          });
+        }
+      }
+    } catch (e) {
+      alert("❌ Invalid QR — not in JSON format.");
+      setScanning(false);
+    }
   };
 
   return (
@@ -175,6 +211,39 @@ function App() {
           <button className="close-scanner-button" onClick={handleStopScan}>
             ✕ Close
           </button>
+        </div>
+      )}
+
+      {/* 🔹 Receipt overlay */}
+      {receipt && (
+        <div className="scanner-overlay" style={{ background: "rgba(0,0,0,0.85)" }}>
+          <div style={{
+            background: "#fff",
+            color: "#333",
+            padding: 24,
+            borderRadius: 16,
+            width: "min(90vw, 420px)",
+            boxShadow: "0 10px 35px rgba(0,0,0,0.4)",
+            textAlign: "center"
+          }}>
+            <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>
+              {receipt.success ? "Payment Successful" : "Payment Failed"}
+            </div>
+            <div style={{ fontSize: 32, fontWeight: 800, color: receipt.success ? "#16a34a" : "#dc2626", marginBottom: 8 }}>
+              ₹{receipt.amount}
+            </div>
+            <div style={{ marginBottom: 4 }}>Name: {receipt.name || ""}</div>
+            <div style={{ marginBottom: 4 }}>Txn: {receipt.txnId}</div>
+            <div style={{ marginBottom: 12 }}>{new Date(receipt.timestamp).toLocaleString()}</div>
+            <div style={{ marginBottom: 16, fontWeight: 600 }}>Balance: ₹{balance}</div>
+            <button
+              className="close-scanner-button"
+              onClick={() => setReceipt(null)}
+              style={{ position: "static" }}
+            >
+              Done
+            </button>
+          </div>
         </div>
       )}
     </div>
